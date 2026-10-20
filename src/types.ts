@@ -80,8 +80,11 @@ export interface EventBlueprint {
 export interface VenueAdRecommendation {
   id: string;
   name: string;
-  type: 'Hotel & Banquet' | 'Rooftop Restaurant & Lounge' | 'Heritage Resort & Lawn' | 'Convention & Community Space';
+  type: 'Hotel & Banquet' | 'Rooftop Restaurant & Lounge' | 'Heritage Resort & Lawn' | 'Convention & Community Space' | 'Restaurant & Banquet';
   city: string;
+  address?: string;
+  osmId?: string;
+  coordinates?: { lat: number; lon: number };
   rating: number;
   reviewCount: number;
   topReviewSnippet: string;
@@ -89,10 +92,11 @@ export interface VenueAdRecommendation {
   pricePerGuest: number;
   estimatedTotalForGuests: number;
   currency: CurrencyCode;
-  sponsoredBadge: 'Sponsored • Best Budget Match' | 'Featured Partner • 15% Off' | 'Top Rated Local Pick';
+  sponsoredBadge: 'Sponsored • Live OSM Match' | 'Featured Partner • Real Venue' | 'Top Rated Local Pick';
   highlights: string[];
   bookingUrl: string;
   mapsUrl: string;
+  osmUrl?: string;
 }
 
 export interface ChatMessage {

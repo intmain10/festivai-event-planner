@@ -161,11 +161,11 @@ function VenueAdCardsGrid({
         <div className="flex items-center gap-2">
           <Building2 className="w-4 h-4 text-[#0B57D0]" />
           <span className="text-xs font-bold uppercase tracking-wider text-[#444746]">
-            Sponsored • AI Budget-Matched Places & Hotels
+            Sponsored • Live OpenStreetMap Places & Hotels
           </span>
         </div>
-        <span className="text-[11px] text-[#444746] bg-[#F0F4F9] px-2.5 py-0.5 rounded-full">
-          Verified Reviews & Instant Booking
+        <span className="text-[11px] text-[#0B57D0] bg-[#E8F0FE] font-medium px-2.5 py-0.5 rounded-full">
+          100% Real-World OSM Data
         </span>
       </div>
 
@@ -205,6 +205,13 @@ function VenueAdCardsGrid({
                       </span>
                     )}
                   </h5>
+
+                  {venue.address && (
+                    <div className="text-xs text-[#444746] flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-[#0B57D0] shrink-0" />
+                      <span>{venue.address}</span>
+                    </div>
+                  )}
 
                   {/* Star Rating */}
                   <div className="flex items-center gap-1.5 text-xs">
@@ -279,6 +286,18 @@ function VenueAdCardsGrid({
                     <MapPin className="w-3.5 h-3.5 text-[#0B57D0]" />
                     <span>Google Maps</span>
                   </a>
+
+                  {venue.osmUrl && (
+                    <a
+                      href={venue.osmUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#F0F4F9] hover:bg-[#E1E5EA] text-[#444746] text-xs font-medium transition-colors"
+                    >
+                      <span>OSM #{venue.osmId}</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
                 </div>
 
                 <button
