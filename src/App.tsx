@@ -7,7 +7,6 @@ import {
   Copy,
   ThumbsUp,
   ThumbsDown,
-  RotateCcw,
   Mic,
   Send,
   X,
@@ -17,7 +16,6 @@ import {
   Wallet,
   Calendar,
   Briefcase,
-  Lightbulb,
   Heart,
   Cake,
   Globe2,
@@ -34,9 +32,15 @@ import {
   ArrowUpRight,
   SlidersHorizontal,
   Star,
-  ExternalLink,
   Building2,
-  Quote
+  Quote,
+  Utensils,
+  Map,
+  Search,
+  TicketCheck,
+  ChevronLeft,
+  ChevronRight,
+  Camera
 } from 'lucide-react';
 import {
   EventBlueprint,
@@ -45,10 +49,13 @@ import {
   VendorChecklistItem,
   PersonalizedIdea,
   VenueAdRecommendation,
+  PlaceSearchCategory,
+  InAppBookingRecord,
 } from './types';
 import {
   generateEventBlueprintWithAI,
   processHumanConversationTurn,
+  fetchLiveOpenSourceVenueAds,
   ConversationDraftMemory,
   formatCurrency,
   getStoredApiKey,
@@ -96,7 +103,7 @@ function renderInlineFormatting(text: string): React.ReactNode[] {
   });
 }
 
-/** Clean Rich Markdown Renderer matching Google Gemini App typography */
+/** Clean Rich Markdown Renderer */
 function GeminiMarkdown({ content }: { content: string }) {
   const lines = content.split('\n');
   return (
@@ -145,63 +152,118 @@ function GeminiMarkdown({ content }: { content: string }) {
   );
 }
 
-/** Native LLM Sponsored Hotel / Restaurant Recommendation Cards Component */
+/**
+ * Self-Contained In-App Restaurant, Hotel & Event Place Cards
+ * Includes:
+ * - In-App Interactive Map Embed (no external tab needed!)
+ * - In-App Menu & Package Accordion
+ * - In-App Instant Booking Modal trigger
+ */
 function VenueAdCardsGrid({
   venues,
+  onOpenBookingModal,
   onSelectVenue,
   selectedVenueName,
+  confirmedBookings,
 }: {
   venues: VenueAdRecommendation[];
+  onOpenBookingModal: (venue: VenueAdRecommendation) => void;
   onSelectVenue: (venue: VenueAdRecommendation) => void;
   selectedVenueName?: string;
+  confirmedBookings: InAppBookingRecord[];
 }) {
+  const [openMapIds, setOpenMapIds] = useState<Record<string, boolean>>({});
+  const [openMenuIds, setOpenMenuIds] = useState<Record<string, boolean>>({});
+  const [activePhotoIndex, setActivePhotoIndex] = useState<Record<string, number>>({});
+
   return (
     <div className="pt-2 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Building2 className="w-4 h-4 text-[#0B57D0]" />
           <span className="text-xs font-bold uppercase tracking-wider text-[#444746]">
-            Sponsored • Live OpenStreetMap Places & Hotels
+            Live OpenStreetMap Restaurants, Hotels & Event Places
           </span>
         </div>
         <span className="text-[11px] text-[#0B57D0] bg-[#E8F0FE] font-medium px-2.5 py-0.5 rounded-full">
-          100% Real-World OSM Data
+          📸 Photo Carousels • 🗺️ Live Maps • 🍽️ Menus • ✨ Instant Booking
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 gap-4">
         {venues.map((venue) => {
           const isLocked =
             selectedVenueName &&
             selectedVenueName.toLowerCase().includes(venue.name.toLowerCase());
+          const existingBooking = confirmedBookings.find(
+            (b) => b.venueName.toLowerCase() === venue.name.toLowerCase()
+          );
+          const showMap = !!openMapIds[venue.id];
+          const showMenu = !!openMenuIds[venue.id];
+
+          const photos = venue.photos || [];
+          const currentIdx = activePhotoIndex[venue.id] || 0;
+          const activeSlide = photos[currentIdx] || photos[0];
+
+          const handlePrevPhoto = () => {
+            if (photos.length === 0) return;
+            setActivePhotoIndex((prev) => ({
+              ...prev,
+              [venue.id]: (currentIdx - 1 + photos.length) % photos.length,
+            }));
+          };
+
+          const handleNextPhoto = () => {
+            if (photos.length === 0) return;
+            setActivePhotoIndex((prev) => ({
+              ...prev,
+              [venue.id]: (currentIdx + 1) % photos.length,
+            }));
+          };
+
+          const lat = venue.coordinates?.lat || 23.0225;
+          const lon = venue.coordinates?.lon || 72.5714;
+          const bbox = `${lon - 0.008},${lat - 0.005},${lon + 0.008},${lat + 0.005}`;
+          const embedMapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lon}`;
 
           return (
             <div
               key={venue.id}
-              className={`rounded-2xl p-4 border transition-all bg-[#FFFFFF] space-y-3 ${
-                isLocked
+              className={`rounded-2xl p-4 border transition-all bg-[#FFFFFF] space-y-3.5 ${
+                existingBooking
+                  ? 'border-emerald-500 ring-2 ring-emerald-500/15 bg-emerald-50/15'
+                  : isLocked
                   ? 'border-[#0B57D0] ring-2 ring-[#0B57D0]/15 bg-[#F8FAFD]'
                   : 'border-[#DCE1E8] hover:border-[#0B57D0]/60 shadow-2xs'
               }`}
             >
-              {/* Top Row: Badge + Name + Rating + Price */}
+              {/* Top Row: Badge + Name + Address + Price */}
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-100/90 text-amber-900 border border-amber-300">
                       {venue.sponsoredBadge}
                     </span>
-                    <span className="text-xs text-[#444746] flex items-center gap-1">
-                      <MapPin className="w-3 h-3 text-[#0B57D0]" />
+                    <span className="text-xs text-[#444746] font-medium">
                       {venue.type} • {venue.city}
                     </span>
+                    {venue.osmId && (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-[#F0F4F9] text-[#444746]">
+                        OSM #{venue.osmId}
+                      </span>
+                    )}
                   </div>
 
-                  <h5 className="text-base font-bold text-[#1F1F1F] flex items-center gap-2">
+                  <h5 className="text-base font-bold text-[#1F1F1F] flex flex-wrap items-center gap-2">
                     <span>{venue.name}</span>
-                    {isLocked && (
-                      <span className="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                        ✓ Selected Venue
+                    {existingBooking && (
+                      <span className="text-[11px] font-bold bg-emerald-600 text-white px-2.5 py-0.5 rounded-full">
+                        ✓ Booked (#{existingBooking.bookingId})
+                      </span>
+                    )}
+                    {!existingBooking && isLocked && (
+                      <span className="text-[11px] font-semibold bg-[#E8F0FE] text-[#0B57D0] px-2 py-0.5 rounded-full">
+                        ✓ Selected in Plan
                       </span>
                     )}
                   </h5>
@@ -222,7 +284,7 @@ function VenueAdCardsGrid({
                       ))}
                     </div>
                     <span className="text-[#444746]">
-                      ({venue.reviewCount.toLocaleString()} Google reviews)
+                      ({venue.reviewCount.toLocaleString()} verified reviews)
                     </span>
                   </div>
                 </div>
@@ -236,10 +298,92 @@ function VenueAdCardsGrid({
                     Est. {formatCurrency(venue.estimatedTotalForGuests, venue.currency)} total
                   </div>
                   <div className="text-[10px] text-emerald-700 font-semibold">
-                    ✓ Fits your comfort budget
+                    ✓ All-Inclusive Event Package
                   </div>
                 </div>
               </div>
+
+              {/* INTERACTIVE PHOTO CAROUSEL BELOW RESTAURANT / VENUE DETAILS */}
+              {photos.length > 0 && activeSlide && (
+                <div className="space-y-2">
+                  {/* Main Carousel Slide */}
+                  <div className="relative rounded-xl overflow-hidden border border-[#DCE1E8] bg-[#1F1F1F] h-48 sm:h-56 group">
+                    <img
+                      src={activeSlide.url}
+                      alt={`${venue.name} - ${activeSlide.tag}`}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent pointer-events-none" />
+
+                    {/* Top-left Photo Tag Badge */}
+                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/65 backdrop-blur-xs text-white text-[11px] font-semibold">
+                      <Camera className="w-3.5 h-3.5 text-[#A8C7FA]" />
+                      <span>{activeSlide.tag}</span>
+                    </div>
+
+                    {/* Top-right Slide Counter */}
+                    <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-black/65 backdrop-blur-xs text-white text-[11px] font-medium">
+                      {currentIdx + 1} / {photos.length}
+                    </div>
+
+                    {/* Prev / Next Navigation Buttons */}
+                    <button
+                      type="button"
+                      onClick={handlePrevPhoto}
+                      aria-label="Previous venue photo"
+                      className="cursor-pointer absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-[#1F1F1F] flex items-center justify-center shadow-md transition-transform active:scale-95"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleNextPhoto}
+                      aria-label="Next venue photo"
+                      className="cursor-pointer absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-[#1F1F1F] flex items-center justify-center shadow-md transition-transform active:scale-95"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+
+                    {/* Bottom Caption Overlay */}
+                    <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between gap-2 text-white">
+                      <p className="text-xs font-medium truncate">{activeSlide.caption}</p>
+                    </div>
+                  </div>
+
+                  {/* Interactive Thumbnail Strip Below Carousel */}
+                  <div className="grid grid-cols-4 gap-2">
+                    {photos.map((slide, sIdx) => {
+                      const isCurrent = sIdx === currentIdx;
+                      return (
+                        <button
+                          key={sIdx}
+                          type="button"
+                          onClick={() =>
+                            setActivePhotoIndex((prev) => ({ ...prev, [venue.id]: sIdx }))
+                          }
+                          className={`cursor-pointer relative rounded-lg overflow-hidden h-14 border-2 transition-all text-left ${
+                            isCurrent
+                              ? 'border-[#0B57D0] ring-2 ring-[#0B57D0]/25 opacity-100'
+                              : 'border-transparent opacity-75 hover:opacity-100'
+                          }`}
+                        >
+                          <img
+                            src={slide.url}
+                            alt={slide.tag}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          <div className="absolute inset-x-0 bottom-0 bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white truncate">
+                            {slide.tag}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Perks Pills */}
               <div className="flex flex-wrap gap-1.5">
@@ -264,53 +408,112 @@ function VenueAdCardsGrid({
                 </div>
               </div>
 
-              {/* Booking & Lock-in Buttons */}
+              {/* IN-APP EMBEDDED MENU & PACKAGE EXPLORER */}
+              {showMenu && venue.inAppMenuPreview && (
+                <div className="p-3.5 rounded-xl bg-[#F8FAFD] border border-[#C2E7FF] space-y-2.5 text-xs">
+                  <div className="font-bold text-[#0B57D0] uppercase tracking-wider flex items-center justify-between">
+                    <span>🍽️ In-App Package Menu & Amenities ({venue.name})</span>
+                    <span>{formatCurrency(venue.pricePerGuest, venue.currency)}/guest</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[#1F1F1F]">
+                    <div className="bg-white p-2.5 rounded-lg border border-[#E3E3E3]">
+                      <div className="font-semibold text-[#0B57D0] mb-1">🥂 Welcome & Starters</div>
+                      <ul className="list-disc list-inside text-[11px] text-[#444746] space-y-0.5">
+                        {venue.inAppMenuPreview.welcomeDrinks.map((d, i) => (
+                          <li key={i}>{d}</li>
+                        ))}
+                        {venue.inAppMenuPreview.starters.map((s, i) => (
+                          <li key={i}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-lg border border-[#E3E3E3]">
+                      <div className="font-semibold text-[#0B57D0] mb-1">🍛 Mains, Desserts & Setup</div>
+                      <ul className="list-disc list-inside text-[11px] text-[#444746] space-y-0.5">
+                        {venue.inAppMenuPreview.mainsAndLiveCounters.map((m, i) => (
+                          <li key={i}>{m}</li>
+                        ))}
+                        {venue.inAppMenuPreview.desserts.map((d, i) => (
+                          <li key={i}>{d}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* IN-APP EMBEDDED INTERACTIVE OPENSTREETMAP (NO EXTERNAL REDIRECT NEEDED!) */}
+              {showMap && (
+                <div className="rounded-xl overflow-hidden border border-[#DCE1E8] bg-[#F0F4F9]">
+                  <div className="px-3 py-1.5 bg-[#E8F0FE] text-[#0B57D0] text-[11px] font-semibold flex items-center justify-between">
+                    <span>📍 Live Interactive Street Map — {venue.name} ({venue.city})</span>
+                    <span>GPS: {lat.toFixed(4)}, {lon.toFixed(4)}</span>
+                  </div>
+                  <iframe
+                    title={`Map for ${venue.name}`}
+                    src={embedMapUrl}
+                    className="w-full h-52 border-0"
+                    loading="lazy"
+                  />
+                </div>
+              )}
+
+              {/* 100% In-App Action Buttons */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <a
-                    href={venue.bookingUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#0B57D0] hover:bg-[#0842A0] text-white text-xs font-semibold transition-colors"
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onOpenBookingModal(venue)}
+                    className="cursor-pointer inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#0B57D0] hover:bg-[#0842A0] text-white text-xs font-semibold transition-colors shadow-2xs"
                   >
-                    <span>Book / Check Availability</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                    <TicketCheck className="w-3.5 h-3.5" />
+                    <span>
+                      {existingBooking ? 'View / Modify Booking' : 'Book Directly in FestivAI'}
+                    </span>
+                  </button>
 
-                  <a
-                    href={venue.mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#F0F4F9] hover:bg-[#E1E5EA] text-[#1F1F1F] text-xs font-medium transition-colors"
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenMenuIds((prev) => ({ ...prev, [venue.id]: !prev[venue.id] }))
+                    }
+                    className={`cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      showMenu
+                        ? 'bg-[#C2E7FF] text-[#001D35] font-semibold'
+                        : 'bg-[#F0F4F9] hover:bg-[#E1E5EA] text-[#1F1F1F]'
+                    }`}
                   >
-                    <MapPin className="w-3.5 h-3.5 text-[#0B57D0]" />
-                    <span>Google Maps</span>
-                  </a>
+                    <Utensils className="w-3.5 h-3.5 text-[#0B57D0]" />
+                    <span>{showMenu ? 'Hide Menu' : 'View Menu & Package'}</span>
+                  </button>
 
-                  {venue.osmUrl && (
-                    <a
-                      href={venue.osmUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#F0F4F9] hover:bg-[#E1E5EA] text-[#444746] text-xs font-medium transition-colors"
-                    >
-                      <span>OSM #{venue.osmId}</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenMapIds((prev) => ({ ...prev, [venue.id]: !prev[venue.id] }))
+                    }
+                    className={`cursor-pointer inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      showMap
+                        ? 'bg-[#C2E7FF] text-[#001D35] font-semibold'
+                        : 'bg-[#F0F4F9] hover:bg-[#E1E5EA] text-[#1F1F1F]'
+                    }`}
+                  >
+                    <Map className="w-3.5 h-3.5 text-[#0B57D0]" />
+                    <span>{showMap ? 'Hide Map' : 'View Live Map Here'}</span>
+                  </button>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => onSelectVenue(venue)}
-                  className={`cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                  className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
                     isLocked
                       ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                       : 'bg-white hover:bg-[#E8F0FE] text-[#0B57D0] border-[#0B57D0]'
                   }`}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>{isLocked ? 'Locked in Your Plan ✓' : 'Select Venue for My Plan'}</span>
+                  <span>{isLocked ? 'In Your Plan ✓' : 'Add to Plan'}</span>
                 </button>
               </div>
             </div>
@@ -333,6 +536,24 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [draftMemory, setDraftMemory] = useState<ConversationDraftMemory>({ notes: [] });
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
+
+  // In-App Bookings & In-App Place Explorer State
+  const [confirmedBookings, setConfirmedBookings] = useState<InAppBookingRecord[]>([]);
+  const [bookingModalVenue, setBookingModalVenue] = useState<VenueAdRecommendation | null>(null);
+  const [bookingDate, setBookingDate] = useState(
+    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  );
+  const [bookingSlot, setBookingSlot] = useState<InAppBookingRecord['timeSlot']>(
+    'Evening Dinner & Party (7 PM - 11:30 PM)'
+  );
+  const [bookingGuests, setBookingGuests] = useState(50);
+  const [bookingDietary, setBookingDietary] = useState('Pure Veg & Jain Counter Included');
+  const [bookingNotes, setBookingNotes] = useState('');
+
+  // In-App Place Search Filter inside Canvas
+  const [placeSearchCity, setPlaceSearchCity] = useState('');
+  const [placeCategoryFilter, setPlaceCategoryFilter] = useState<PlaceSearchCategory>('all');
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
 
   // Prompt & Loading State
   const [chatInput, setChatInput] = useState('');
@@ -364,7 +585,7 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, isGenerating]);
 
-  // Start a fresh blank Gemini chat session
+  // Start a fresh blank chat session
   const handleStartNewChat = () => {
     if (blueprint && chatMessages.length > 0) {
       setSavedSessions((prev) => {
@@ -385,7 +606,6 @@ export default function App() {
     setShowEditParameters(false);
   };
 
-  // Load a previously prompted session from sidebar
   const handleSelectSavedSession = (session: SavedSession) => {
     setBlueprint(session.blueprint);
     setChatMessages(session.messages);
@@ -394,6 +614,7 @@ export default function App() {
     setEditBudget(session.blueprint.totalBudget);
     setEditLocation(session.blueprint.location);
     setEditDate(session.blueprint.date);
+    setPlaceSearchCity(session.blueprint.location);
   };
 
   // Main GenAI Conversational Turn Handler
@@ -434,6 +655,7 @@ export default function App() {
         setEditBudget(bp.totalBudget);
         setEditLocation(bp.location);
         setEditDate(bp.date);
+        setPlaceSearchCity(bp.location);
 
         const aiMsg: ChatMessage = {
           id: `a-${Date.now()}`,
@@ -441,11 +663,8 @@ export default function App() {
           content: turnResult.replyMarkdown,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           actionTaken: `Generated ${bp.category} plan + ${
-            bp.venueRecommendations?.length || 3
-          } partner venues (${bp.guestCount} guests • ${formatCurrency(
-            bp.totalBudget,
-            bp.currency
-          )})`,
+            bp.venueRecommendations?.length || 4
+          } live OpenStreetMap places in ${bp.location}`,
           venueRecommendations: turnResult.venueRecommendations || bp.venueRecommendations,
         };
 
@@ -470,7 +689,7 @@ export default function App() {
           content: turnResult.replyMarkdown,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           actionTaken: turnResult.venueRecommendations
-            ? 'Found top-rated hotels & restaurants for your budget'
+            ? 'Fetched live restaurants, hotels & event places from OpenStreetMap'
             : blueprint
             ? `Analyzed "${blueprint.title}"`
             : 'Conversational response',
@@ -483,10 +702,121 @@ export default function App() {
     }
   };
 
-  // When a user clicks "Select Venue for My Plan" on any LLM Ad Card!
+  // In-App Live Place Search & Category Filter inside the Canvas!
+  const handleInAppPlaceSearch = async (categoryOverride?: PlaceSearchCategory) => {
+    const activeCat = categoryOverride ?? placeCategoryFilter;
+    if (categoryOverride) setPlaceCategoryFilter(categoryOverride);
+    const targetCity = placeSearchCity.trim() || blueprint?.location || 'Ahmedabad';
+
+    setIsSearchingPlaces(true);
+    try {
+      const liveOsm = await fetchLiveOpenSourceVenueAds({
+        category: blueprint?.category || 'birthday',
+        city: targetCity,
+        guestCount: blueprint?.guestCount || 50,
+        totalBudget: blueprint?.totalBudget || 100000,
+        currency: blueprint?.currency || defaultCurrency,
+        filterCategory: activeCat,
+      });
+
+      setPlaceSearchCity(liveOsm.resolvedCity);
+      if (blueprint) {
+        setBlueprint({
+          ...blueprint,
+          location: liveOsm.resolvedCity,
+          venueRecommendations: liveOsm.venues,
+        });
+      }
+    } finally {
+      setIsSearchingPlaces(false);
+    }
+  };
+
+  // Open In-App Direct Booking Modal
+  const handleOpenBookingModal = (venue: VenueAdRecommendation) => {
+    setBookingModalVenue(venue);
+    setBookingGuests(blueprint?.guestCount || 30);
+    setBookingDate(
+      blueprint?.date ||
+        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    );
+  };
+
+  // Confirm In-App Booking Hold (100% Inside FestivAI!)
+  const handleConfirmInAppBooking = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bookingModalVenue) return;
+
+    const totalCost = bookingModalVenue.pricePerGuest * bookingGuests;
+    const bookingId = `FA-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const record: InAppBookingRecord = {
+      bookingId,
+      venueId: bookingModalVenue.id,
+      venueName: bookingModalVenue.name,
+      venueAddress: bookingModalVenue.address || bookingModalVenue.city,
+      city: bookingModalVenue.city,
+      eventDate: bookingDate,
+      timeSlot: bookingSlot,
+      guestCount: bookingGuests,
+      totalEstimatedCost: totalCost,
+      currency: bookingModalVenue.currency,
+      dietaryPreference: bookingDietary,
+      specialNotes: bookingNotes,
+      bookedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    setConfirmedBookings((prev) => [
+      record,
+      ...prev.filter((b) => b.venueName !== bookingModalVenue.name),
+    ]);
+
+    // Also lock into active blueprint and mark Venue Vendor as Booked ✓
+    if (blueprint) {
+      setBlueprint((prev) => {
+        if (!prev) return null;
+        const updatedVendors = prev.vendors.map((v, i) =>
+          i === 0
+            ? {
+                ...v,
+                role: `${bookingModalVenue.name} (Booked #${bookingId})`,
+                status: 'Booked' as const,
+                estimatedCost: totalCost,
+              }
+            : v
+        );
+        return {
+          ...prev,
+          location: `${bookingModalVenue.name}, ${bookingModalVenue.city}`,
+          date: bookingDate,
+          guestCount: bookingGuests,
+          vendors: updatedVendors,
+        };
+      });
+    }
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `book-confirm-${Date.now()}`,
+        role: 'assistant',
+        content: `### 🎉 In-App Booking Confirmed! (**#${bookingId}**)\nYour reservation at **${bookingModalVenue.name}** (${bookingModalVenue.address || bookingModalVenue.city}) is locked in directly on **FestivAI**:\n\n- **Date & Slot:** ${bookingDate} • ${bookingSlot}\n- **Guests & Menu:** ${bookingGuests} guests • ${bookingDietary}\n- **All-Inclusive Package Total:** **${formatCurrency(totalCost, bookingModalVenue.currency)}** (${formatCurrency(bookingModalVenue.pricePerGuest, bookingModalVenue.currency)}/guest)\n\nI’ve automatically marked your Venue as **Booked ✓** in your Event Canvas!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        actionTaken: `Confirmed In-App Booking #${bookingId}`,
+      },
+    ]);
+
+    setBookingModalVenue(null);
+    confetti({
+      particleCount: 70,
+      spread: 75,
+      origin: { y: 0.6 },
+    });
+  };
+
+  // Select Venue into Plan
   const handleSelectVenueFromAd = async (venue: VenueAdRecommendation) => {
     if (blueprint) {
-      // Update existing blueprint with the chosen hotel/restaurant!
       setBlueprint((prev) => {
         if (!prev) return null;
         const updatedVendors = prev.vendors.map((v, i) =>
@@ -514,31 +844,24 @@ export default function App() {
         {
           id: `venue-lock-${Date.now()}`,
           role: 'assistant',
-          content: `### 📍 Locked In **${venue.name}** (${venue.rating}★)\nI’ve set **${venue.name}** in **${venue.city}** as your primary venue in the Event Canvas (Est. **${formatCurrency(
-            venue.estimatedTotalForGuests,
-            venue.currency
-          )}** at **${formatCurrency(
-            venue.pricePerGuest,
-            venue.currency
-          )}/guest**) and marked it as **Shortlisted** in your Vendor Checklist!`,
+          content: `### 📍 Added **${venue.name}** to Your Plan\nI’ve set **${venue.name}** (${venue.address || venue.city}) as your primary venue in the Event Canvas. You can click **"Book Directly in FestivAI"** on the card anytime to reserve your date and menu!`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           actionTaken: `Selected ${venue.name}`,
         },
       ]);
     } else {
-      // If user clicked a venue card before generating a full plan, generate the full plan around that venue!
       await handleSendPrompt(
         `Plan a ${draftMemory.category || 'birthday'} party at ${venue.name} in ${
           venue.city
-        } with a budget of ${formatCurrency(
-          Math.round(venue.estimatedTotalForGuests * 1.9),
+        } for 30 guests with a budget of ${formatCurrency(
+          Math.round(venue.estimatedTotalForGuests * 1.8),
           venue.currency
         )}`
       );
     }
   };
 
-  // Refine parameters if user adjusts guests/budget in the active Canvas
+  // Refine parameters
   const handleUpdateParameters = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!blueprint) return;
@@ -559,17 +882,18 @@ export default function App() {
       });
 
       setBlueprint(result.blueprint);
+      setPlaceSearchCity(result.blueprint.location);
       setChatMessages((prev) => [
         ...prev,
         {
           id: `upd-${Date.now()}`,
           role: 'assistant',
-          content: `### ✨ Updated Your Plan & Venue Matches\nRecalculated your budget, vendor estimates, and hotel/restaurant packages for **${result.blueprint.guestCount} guests** in **${result.blueprint.location}** with a total budget of **${formatCurrency(
+          content: `### ✨ Updated Your Plan & Live OpenStreetMap Places\nRecalculated your budget, vendor estimates, and live hotel/restaurant packages for **${result.blueprint.guestCount} guests** in **${result.blueprint.location}** with a total budget of **${formatCurrency(
             result.blueprint.totalBudget,
             result.blueprint.currency
           )}**.`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          actionTaken: 'Updated Event Canvas & Venue Matches',
+          actionTaken: 'Updated Event Canvas & Live Places',
           venueRecommendations: result.blueprint.venueRecommendations,
         },
       ]);
@@ -578,16 +902,14 @@ export default function App() {
     }
   };
 
-  // Voice Input via Web Speech API
+  // Voice Input
   const handleVoiceInput = () => {
     const SpeechRecognition =
       (window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown })
         .SpeechRecognition ||
       (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
-      return;
-    }
+    if (!SpeechRecognition) return;
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -598,9 +920,7 @@ export default function App() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onresult = (event: any) => {
         const transcript = event.results?.[0]?.[0]?.transcript;
-        if (transcript) {
-          setChatInput(transcript);
-        }
+        if (transcript) setChatInput(transcript);
         setIsListening(false);
       };
       recognition.onerror = () => setIsListening(false);
@@ -611,7 +931,7 @@ export default function App() {
     }
   };
 
-  // Computed metrics when a blueprint is active
+  // Computed metrics
   const perGuestCost = useMemo(() => {
     if (!blueprint) return 0;
     return Math.round(blueprint.totalBudget / Math.max(1, blueprint.guestCount));
@@ -781,7 +1101,7 @@ export default function App() {
 
   const handleExportDossier = () => {
     if (!blueprint) return;
-    const md = `# ${blueprint.title} — AuraPlan AI Blueprint\nDate: ${blueprint.date} | Location: ${
+    const md = `# ${blueprint.title} — FestivAI Blueprint\nDate: ${blueprint.date} | Location: ${
       blueprint.location
     }\nGuests: ${blueprint.guestCount} | Budget: ${formatCurrency(
       blueprint.totalBudget,
@@ -800,48 +1120,46 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Starter prompt examples for the blank Gemini welcome screen
   const starterPrompts = [
     {
+      icon: Cake,
+      title: 'Birthday in Ahmedabad + Places',
+      sub: 'Live restaurants, menus, maps & budget',
+      prompt:
+        'Plan a birthday celebration in Ahmedabad for 25 guests with a budget of ₹50,000 and show real restaurants & hotels.',
+    },
+    {
       icon: Heart,
-      title: 'Plan a wedding celebration',
-      sub: 'Budgets, timelines, hotels & decor',
+      title: 'Wedding in Udaipur or Jaipur',
+      sub: 'Budgets, timelines, resorts & decor',
       prompt:
         'Plan a 200-guest outdoor garden wedding in Udaipur with a budget of ₹15,00,000, live food stations, and warm fairy-light decor.',
     },
     {
-      icon: Cake,
-      title: 'Birthday party + rooftop places',
-      sub: 'Top restaurants, ratings & cake ideas',
-      prompt:
-        'Plan a milestone 30th rooftop birthday party in Mumbai for 50 friends under ₹85,000 and suggest top restaurants with ratings.',
-    },
-    {
       icon: Globe2,
-      title: 'Create a community event',
+      title: 'Community Festival in Bengaluru',
       sub: 'Venues, stalls, permits & schedule',
       prompt:
         'Organize a Sunday neighborhood cultural and food festival in Bengaluru for 400 attendees with a budget of ₹3,00,000.',
     },
     {
       icon: Building2,
-      title: 'Find hotels & restaurants',
-      sub: 'Compare ratings, reviews & packages',
+      title: 'Explore Real Hotels & Venues',
+      sub: 'In-app maps, menus & instant booking',
       prompt:
-        'Suggest the best rooftop restaurants and hotels in Delhi for a 60-person birthday celebration under ₹1,20,000.',
+        'Show me real restaurants, hotels, and banquet places in Delhi for 60 guests under ₹1,20,000.',
     },
   ];
 
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-[#FFFFFF] text-[#1F1F1F] font-sans">
-      {/* 1. AUTHENTIC GOOGLE GEMINI LEFT SIDEBAR (#F0F4F9) */}
+      {/* 1. LEFT SIDEBAR (#F0F4F9) */}
       <aside
         className={`${
           sidebarOpen ? 'w-72' : 'w-0 -ml-72 md:ml-0 md:w-16'
         } bg-[#F0F4F9] h-full flex flex-col justify-between transition-all duration-300 shrink-0 z-30 border-r border-[#E3E3E3]/60 overflow-hidden`}
       >
-        <div className="p-3 space-y-4">
-          {/* Top Hamburger Menu */}
+        <div className="p-3 space-y-4 overflow-y-auto">
           <div className="flex items-center justify-between px-1">
             <button
               type="button"
@@ -865,19 +1183,39 @@ export default function App() {
             {sidebarOpen && <span>New chat</span>}
           </button>
 
-          {/* Dynamic Recent Prompts / Plans History */}
           {sidebarOpen && (
             <div className="pt-2 space-y-1">
-              <div className="px-3 py-1.5 text-xs font-semibold text-[#444746]">
-                Recent
-              </div>
+              {/* Confirmed In-App Bookings List */}
+              {confirmedBookings.length > 0 && (
+                <div className="pb-3 space-y-1.5">
+                  <div className="px-3 py-1 text-xs font-bold text-emerald-800 uppercase tracking-wider">
+                    ✓ Your In-App Bookings ({confirmedBookings.length})
+                  </div>
+                  {confirmedBookings.map((b) => (
+                    <div
+                      key={b.bookingId}
+                      className="mx-2 p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs space-y-0.5"
+                    >
+                      <div className="font-bold text-emerald-900 truncate">{b.venueName}</div>
+                      <div className="text-[11px] text-emerald-700">
+                        #{b.bookingId} • {b.eventDate} ({b.guestCount} pax)
+                      </div>
+                      <div className="text-[11px] font-semibold text-emerald-900">
+                        {formatCurrency(b.totalEstimatedCost, b.currency)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="px-3 py-1.5 text-xs font-semibold text-[#444746]">Recent</div>
 
               {savedSessions.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-[#444746]/80 leading-relaxed">
-                  No plans yet. Enter a prompt on the right to generate your first wedding, birthday, or community event plan!
+                <div className="px-3 py-3 text-xs text-[#444746]/80 leading-relaxed">
+                  No plans yet. Enter a prompt on the right to generate your event plan and explore real venues in any city!
                 </div>
               ) : (
-                <div className="space-y-1 max-h-60 overflow-y-auto">
+                <div className="space-y-1 max-h-48 overflow-y-auto">
                   {savedSessions.map((session) => {
                     const isCurrent = blueprint?.id === session.id;
                     return (
@@ -908,7 +1246,7 @@ export default function App() {
                   {(
                     [
                       { id: 'overview', label: '🌿 Summary & #1 Next Step' },
-                      { id: 'venues', label: '🏨 Hotels & Places (Sponsored)' },
+                      { id: 'venues', label: '🏨 Real Places, Menus & Booking' },
                       { id: 'budget', label: '💰 Smart Budget Breakdown' },
                       { id: 'timeline', label: '✅ Timeline & Checklist' },
                       { id: 'vendors', label: '🤝 Vendor Checklist & Scripts' },
@@ -989,9 +1327,9 @@ export default function App() {
         )}
       </aside>
 
-      {/* 2. CENTER GOOGLE GEMINI PROMPT & CONVERSATION WORKSPACE */}
+      {/* 2. CENTER WORKSPACE */}
       <div className="flex-1 flex flex-col h-full bg-[#FFFFFF] min-w-0">
-        {/* Top Gemini Header */}
+        {/* Top Header */}
         <header className="h-14 px-4 sm:px-6 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             {!sidebarOpen && (
@@ -1009,7 +1347,7 @@ export default function App() {
                 FestivAI
               </span>
               <span className="text-xs font-medium text-[#0B57D0] bg-[#E8F0FE] px-2.5 py-0.5 rounded-full">
-                Smart Celebration & Event Planner
+                All-in-One Celebration & Venue Platform
               </span>
             </div>
           </div>
@@ -1040,7 +1378,7 @@ export default function App() {
         {/* Main Center Body */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 flex flex-col">
           {chatMessages.length === 0 ? (
-            /* PURE BLANK GEMINI WELCOME STATE */
+            /* BLANK WELCOME STATE */
             <div className="flex-1 flex flex-col justify-center max-w-3xl w-full mx-auto space-y-8 py-8">
               <div className="space-y-2 px-2">
                 <div className="flex items-center gap-3 mb-2">
@@ -1050,11 +1388,10 @@ export default function App() {
                   Hello, there
                 </h1>
                 <p className="text-2xl sm:text-3xl font-medium text-[#C4C7C5] leading-snug">
-                  What wedding, birthday, or community event shall we plan today?
+                  Plan weddings, birthdays & community events — and book real venues in one place.
                 </p>
               </div>
 
-              {/* 4 Optional Starter Prompt Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 px-1">
                 {starterPrompts.map((card, idx) => {
                   const Icon = card.icon;
@@ -1105,7 +1442,6 @@ export default function App() {
                     </div>
 
                     <div className="flex-1 min-w-0 space-y-3">
-                      {/* Show thinking / Action Taken chip */}
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
@@ -1133,27 +1469,25 @@ export default function App() {
                             <strong>{blueprint.location}</strong>
                           </div>
                           <div>
-                            • Matched Budget & Places for{' '}
-                            <strong>{blueprint.guestCount} guests</strong>:{' '}
-                            {formatCurrency(blueprint.totalBudget, blueprint.currency)} (~
-                            {formatCurrency(perGuestCost, blueprint.currency)}/guest)
+                            • Queried OpenStreetMap Photon API for real restaurants, hotels & venues in{' '}
+                            <strong>{blueprint.location}</strong>
                           </div>
                         </div>
                       )}
 
-                      {/* Rich Markdown Answer */}
                       <GeminiMarkdown content={msg.content} />
 
-                      {/* NATIVE LLM SPONSORED VENUE & RESTAURANT AD CARDS IN CHAT */}
+                      {/* IN-APP REAL RESTAURANT, HOTEL & VENUE CARDS */}
                       {msg.venueRecommendations && msg.venueRecommendations.length > 0 && (
                         <VenueAdCardsGrid
                           venues={msg.venueRecommendations}
+                          onOpenBookingModal={handleOpenBookingModal}
                           onSelectVenue={handleSelectVenueFromAd}
                           selectedVenueName={blueprint?.location}
+                          confirmedBookings={confirmedBookings}
                         />
                       )}
 
-                      {/* Interactive Gemini Canvas Artifact Chip */}
                       {blueprint && msg.venueRecommendations && (
                         <div className="mt-3 p-3.5 rounded-2xl bg-[#F0F4F9] border border-[#DCE1E8] flex flex-wrap items-center justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
@@ -1165,7 +1499,7 @@ export default function App() {
                                 {blueprint.title}
                               </div>
                               <div className="text-[11px] text-[#444746]">
-                                Interactive Budget, Timeline, Hotels & Vendor Scripts
+                                Interactive Budget, Timeline, Place Explorer & In-App Booking
                               </div>
                             </div>
                           </div>
@@ -1180,7 +1514,7 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* Gemini Bottom Action Bar */}
+                      {/* Bottom Action Bar */}
                       <div className="flex items-center gap-1 pt-1 text-[#444746]">
                         <button
                           type="button"
@@ -1229,13 +1563,14 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
-                            handleSendPrompt('Suggest more hotels and restaurants within my budget')
-                          }
-                          className="cursor-pointer px-2.5 py-1 rounded-full hover:bg-[#F0F4F9] text-xs font-medium flex items-center gap-1"
+                          onClick={() => {
+                            setCanvasOpen(true);
+                            setCanvasTab('venues');
+                          }}
+                          className="cursor-pointer px-2.5 py-1 rounded-full hover:bg-[#F0F4F9] text-xs font-medium flex items-center gap-1 text-[#0B57D0]"
                         >
-                          <Building2 className="w-3.5 h-3.5 text-[#0B57D0]" />
-                          <span>Show More Places</span>
+                          <Building2 className="w-3.5 h-3.5" />
+                          <span>Explore All Places in App</span>
                         </button>
                       </div>
                     </div>
@@ -1250,7 +1585,7 @@ export default function App() {
                   </div>
                   <div className="flex-1 space-y-2.5 pt-1">
                     <div className="text-xs font-medium text-[#444746] animate-pulse">
-                      Thinking...
+                      Searching live OpenStreetMap places & building your plan...
                     </div>
                     <div className="h-3.5 w-3/4 rounded-full bg-gradient-to-r from-[#E8F0FE] via-[#F3E8FD] to-[#E8F0FE] animate-pulse" />
                     <div className="h-3.5 w-1/2 rounded-full bg-gradient-to-r from-[#F3E8FD] via-[#E8F0FE] to-[#F3E8FD] animate-pulse" />
@@ -1263,7 +1598,7 @@ export default function App() {
           )}
         </div>
 
-        {/* Bottom Floating Gemini Prompt Omnibox */}
+        {/* Bottom Floating Prompt Omnibox */}
         <div className="px-4 sm:px-8 pb-4 pt-2 bg-[#FFFFFF] shrink-0">
           <form
             onSubmit={(e) => {
@@ -1278,8 +1613,8 @@ export default function App() {
               onChange={(e) => setChatInput(e.target.value)}
               placeholder={
                 blueprint
-                  ? 'Ask for more hotels/restaurants, adjust budget, or ask a question...'
-                  : 'Enter a prompt (e.g., "Plan a 50-guest birthday in Mumbai under ₹80,000 and suggest restaurants")'
+                  ? 'Ask for restaurants/hotels in any city, adjust budget, or ask a question...'
+                  : 'Enter a prompt (e.g., "Birthday in Ahmedabad for 20 people under ₹50,000" or "Hi")'
               }
               className="w-full bg-transparent px-1 py-1 text-[15px] text-[#1F1F1F] placeholder-[#444746] focus:outline-none"
               autoFocus
@@ -1298,17 +1633,20 @@ export default function App() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    handleSendPrompt(
-                      blueprint
-                        ? `Suggest top-rated hotels and restaurants in ${blueprint.location} for ${blueprint.guestCount} guests`
-                        : 'Suggest top rooftop restaurants and hotels in Mumbai for a 50-guest birthday party under ₹80,000'
-                    )
-                  }
+                  onClick={() => {
+                    if (blueprint) {
+                      setCanvasOpen(true);
+                      setCanvasTab('venues');
+                    } else {
+                      handleSendPrompt(
+                        'Show me real restaurants and hotels in Ahmedabad for a 25-guest birthday party under ₹50,000'
+                      );
+                    }
+                  }}
                   className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-white hover:bg-[#DCE1E8] text-[#1F1F1F] transition-colors"
                 >
                   <Building2 className="w-3.5 h-3.5 text-[#0B57D0]" />
-                  <span>Find Hotels & Restaurants</span>
+                  <span>Explore Restaurants & Hotels</span>
                 </button>
 
                 {blueprint && (
@@ -1356,14 +1694,14 @@ export default function App() {
           </form>
 
           <p className="text-[11px] text-center text-[#444746] mt-2">
-            Includes AI-matched hotel & restaurant partner suggestions with ratings, verified reviews, and direct booking links.
+            100% self-contained on FestivAI: Live OpenStreetMap restaurants & hotels, embedded street maps, menus, and instant in-app booking.
           </p>
         </div>
       </div>
 
-      {/* 3. RIGHT-HAND GEMINI CANVAS (ONLY OPENS AFTER USER GENERATES A PLAN!) */}
+      {/* 3. RIGHT-HAND CANVAS */}
       {blueprint && canvasOpen && (
-        <section className="w-full md:w-[460px] lg:w-[540px] xl:w-[600px] h-full bg-[#F8FAFD] border-l border-[#E3E3E3] flex flex-col justify-between shrink-0 z-20">
+        <section className="w-full md:w-[480px] lg:w-[560px] xl:w-[620px] h-full bg-[#F8FAFD] border-l border-[#E3E3E3] flex flex-col justify-between shrink-0 z-20">
           {/* Canvas Header */}
           <div className="p-4 bg-[#FFFFFF] border-b border-[#E3E3E3] space-y-3">
             <div className="flex items-start justify-between gap-2">
@@ -1402,7 +1740,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Inline Quick Refine Drawer */}
             {showEditParameters && (
               <form
                 onSubmit={handleUpdateParameters}
@@ -1412,7 +1749,7 @@ export default function App() {
                   <label className="block text-[10px] font-semibold text-[#444746]">Guests</label>
                   <input
                     type="number"
-                    min={5}
+                    min={2}
                     value={editGuests}
                     onChange={(e) => setEditGuests(Number(e.target.value))}
                     className="w-full rounded-lg bg-white border border-[#DCE1E8] px-2.5 py-1.5 text-xs font-semibold"
@@ -1431,7 +1768,7 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-semibold text-[#444746]">Location</label>
+                  <label className="block text-[10px] font-semibold text-[#444746]">City</label>
                   <input
                     type="text"
                     value={editLocation}
@@ -1448,12 +1785,12 @@ export default function App() {
               </form>
             )}
 
-            {/* 6 Canvas Tabs (Including 🏨 Places & Hotels) */}
+            {/* 6 Canvas Tabs */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
               {(
                 [
                   { id: 'overview', label: '🌿 Summary' },
-                  { id: 'venues', label: '🏨 Places & Hotels' },
+                  { id: 'venues', label: `🏨 Places & Hotels (${blueprint.venueRecommendations?.length || 0})` },
                   { id: 'budget', label: '💰 Budget' },
                   { id: 'timeline', label: `✅ Timeline (${timelineProgress}%)` },
                   { id: 'vendors', label: '🤝 Vendors' },
@@ -1530,12 +1867,12 @@ export default function App() {
                     onClick={() => setCanvasTab('venues')}
                     className="cursor-pointer text-left bg-white p-3.5 rounded-2xl border border-[#E3E3E3] hover:border-[#0B57D0] transition-colors"
                   >
-                    <div className="text-[11px] text-[#444746]">Matched Places</div>
+                    <div className="text-[11px] text-[#444746]">Real Places Found</div>
                     <div className="text-base font-bold text-[#1F1F1F] mt-1">
-                      {blueprint.venueRecommendations?.length || 3} Hotels
+                      {blueprint.venueRecommendations?.length || 4} Venues
                     </div>
                     <div className="text-[11px] text-amber-700 font-semibold mt-0.5">
-                      ★ 4.8+ Rated
+                      In-App Booking
                     </div>
                   </button>
 
@@ -1581,14 +1918,72 @@ export default function App() {
               </div>
             )}
 
-            {/* TAB 1: PLACES & HOTELS (SPONSORED LLM VENUE ADS) */}
-            {canvasTab === 'venues' && blueprint.venueRecommendations && (
+            {/* TAB 1: IN-APP PLACES, RESTAURANTS, HOTELS & BOOKING DIRECTORY */}
+            {canvasTab === 'venues' && (
               <div className="space-y-4">
-                <VenueAdCardsGrid
-                  venues={blueprint.venueRecommendations}
-                  onSelectVenue={handleSelectVenueFromAd}
-                  selectedVenueName={blueprint.location}
-                />
+                {/* In-App Live Search & Filter Bar */}
+                <div className="bg-white p-3.5 rounded-2xl border border-[#DCE1E8] space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-[#444746] absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        value={placeSearchCity}
+                        onChange={(e) => setPlaceSearchCity(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleInAppPlaceSearch();
+                        }}
+                        placeholder="Search any city (e.g., Ahmedabad, Surat, Delhi, Mumbai)..."
+                        className="w-full rounded-full bg-[#F0F4F9] pl-9 pr-4 py-2 text-xs font-medium text-[#1F1F1F] focus:outline-none focus:bg-[#E9EEF6]"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isSearchingPlaces}
+                      onClick={() => handleInAppPlaceSearch()}
+                      className="cursor-pointer px-4 py-2 rounded-full bg-[#0B57D0] hover:bg-[#0842A0] text-white text-xs font-semibold shrink-0"
+                    >
+                      {isSearchingPlaces ? 'Searching...' : 'Search Places'}
+                    </button>
+                  </div>
+
+                  {/* Category Filter Pills */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                    {(
+                      [
+                        { id: 'all', label: 'All Event Places' },
+                        { id: 'restaurant', label: '🍽️ Restaurants' },
+                        { id: 'hotel', label: '🏨 Hotels & Resorts' },
+                        { id: 'banquet', label: '🏛️ Banquet Halls' },
+                        { id: 'bakery', label: '🎂 Cake & Bakeries' },
+                        { id: 'cafe', label: '☕ Cafes & Lounges' },
+                      ] as const
+                    ).map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => handleInAppPlaceSearch(cat.id)}
+                        className={`cursor-pointer px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors ${
+                          placeCategoryFilter === cat.id
+                            ? 'bg-[#C2E7FF] text-[#001D35] font-semibold'
+                            : 'bg-[#F0F4F9] text-[#444746] hover:bg-[#E1E5EA]'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {blueprint.venueRecommendations && (
+                  <VenueAdCardsGrid
+                    venues={blueprint.venueRecommendations}
+                    onOpenBookingModal={handleOpenBookingModal}
+                    onSelectVenue={handleSelectVenueFromAd}
+                    selectedVenueName={blueprint.location}
+                    confirmedBookings={confirmedBookings}
+                  />
+                )}
               </div>
             )}
 
@@ -1903,7 +2298,154 @@ export default function App() {
         </section>
       )}
 
-      {/* Gemini API Key Settings Modal */}
+      {/* IN-APP DIRECT BOOKING & RESERVATION MODAL (NO NEED TO LEAVE FESTIVAI!) */}
+      {bookingModalVenue && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <form
+            onSubmit={handleConfirmInAppBooking}
+            className="bg-white rounded-3xl border border-[#E3E3E3] max-w-lg w-full p-6 shadow-2xl space-y-4"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-[#E8F0FE] text-[#0B57D0]">
+                  In-App Direct Reservation • Zero Commission
+                </span>
+                <h3 className="text-lg font-bold text-[#1F1F1F] mt-1">
+                  Book {bookingModalVenue.name}
+                </h3>
+                <p className="text-xs text-[#444746]">{bookingModalVenue.address}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBookingModalVenue(null)}
+                className="cursor-pointer p-1 rounded-full hover:bg-[#F0F4F9] text-[#444746]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-[#444746] mb-1">
+                  Event Date
+                </label>
+                <input
+                  type="date"
+                  value={bookingDate}
+                  onChange={(e) => setBookingDate(e.target.value)}
+                  className="w-full rounded-xl border border-[#DCE1E8] px-3 py-2 text-xs font-semibold"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#444746] mb-1">
+                  Number of Guests ({formatCurrency(bookingModalVenue.pricePerGuest, bookingModalVenue.currency)}/guest)
+                </label>
+                <input
+                  type="number"
+                  min={2}
+                  max={5000}
+                  value={bookingGuests}
+                  onChange={(e) => setBookingGuests(Number(e.target.value))}
+                  className="w-full rounded-xl border border-[#DCE1E8] px-3 py-2 text-xs font-semibold"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#444746] mb-1">
+                Preferred Time Slot
+              </label>
+              <select
+                value={bookingSlot}
+                onChange={(e) =>
+                  setBookingSlot(e.target.value as InAppBookingRecord['timeSlot'])
+                }
+                className="w-full rounded-xl border border-[#DCE1E8] px-3 py-2 text-xs font-semibold"
+              >
+                <option value="Morning / Brunch (11 AM - 3 PM)">
+                  Morning / Brunch (11 AM - 3 PM)
+                </option>
+                <option value="Sunset High-Tea (4 PM - 7 PM)">
+                  Sunset High-Tea (4 PM - 7 PM)
+                </option>
+                <option value="Evening Dinner & Party (7 PM - 11:30 PM)">
+                  Evening Dinner & Party (7 PM - 11:30 PM)
+                </option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#444746] mb-1">
+                Menu & Dietary Package
+              </label>
+              <select
+                value={bookingDietary}
+                onChange={(e) => setBookingDietary(e.target.value)}
+                className="w-full rounded-xl border border-[#DCE1E8] px-3 py-2 text-xs font-semibold"
+              >
+                <option value="Pure Veg & Jain Counter Included">
+                  Pure Veg & Jain Counter Included
+                </option>
+                <option value="Multi-Cuisine Veg & Non-Veg Spread">
+                  Multi-Cuisine Veg & Non-Veg Spread
+                </option>
+                <option value="Vegan, Gluten-Free & Live Grazing Stations">
+                  Vegan, Gluten-Free & Live Grazing Stations
+                </option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#444746] mb-1">
+                Special Requests (Cake Table, Decor, Music)
+              </label>
+              <input
+                type="text"
+                value={bookingNotes}
+                onChange={(e) => setBookingNotes(e.target.value)}
+                placeholder="e.g., Complimentary birthday cake table & rooftop corner seating..."
+                className="w-full rounded-xl border border-[#DCE1E8] px-3 py-2 text-xs"
+              />
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#F8FAFD] border border-[#C2E7FF] flex items-center justify-between">
+              <div>
+                <div className="text-xs text-[#444746]">Estimated Package Total</div>
+                <div className="text-lg font-bold text-[#0B57D0]">
+                  {formatCurrency(
+                    bookingModalVenue.pricePerGuest * bookingGuests,
+                    bookingModalVenue.currency
+                  )}
+                </div>
+              </div>
+              <div className="text-right text-[11px] text-emerald-700 font-semibold">
+                <div>✓ ₹0 Booking Fee Today</div>
+                <div>✓ Free Cancellation up to 72h</div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setBookingModalVenue(null)}
+                className="cursor-pointer px-4 py-2 rounded-full text-xs font-semibold text-[#444746] hover:bg-[#F0F4F9]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="cursor-pointer px-5 py-2.5 rounded-full text-xs font-semibold bg-[#0B57D0] hover:bg-[#0842A0] text-white shadow-sm"
+              >
+                Confirm Instant Booking on FestivAI
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* FestivAI Engine Settings Modal */}
       {showApiModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
           <div className="bg-white rounded-3xl border border-[#E3E3E3] max-w-md w-full p-6 shadow-2xl space-y-4">
@@ -1924,13 +2466,13 @@ export default function App() {
             </div>
 
             <p className="text-xs sm:text-sm text-[#444746] leading-relaxed">
-              Works out-of-the-box with zero setup! Optionally, paste a{' '}
-              <strong>Google Gemini API Key</strong> (`gemini-2.0-flash`) for live cloud generation.
+              Works out-of-the-box with zero setup and live OpenStreetMap data! Optionally, paste a{' '}
+              <strong>Google Gemini API Key</strong> (`gemini-2.0-flash`) for cloud LLM synthesis.
             </p>
 
             <div>
               <label className="block text-xs font-semibold text-[#444746] mb-1">
-                Google Gemini API Key (Optional)
+                AI API Key (Optional)
               </label>
               <input
                 type="password"

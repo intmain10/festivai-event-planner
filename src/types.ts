@@ -77,10 +77,28 @@ export interface EventBlueprint {
   venueRecommendations?: VenueAdRecommendation[];
 }
 
+export type PlaceSearchCategory = 'all' | 'restaurant' | 'hotel' | 'banquet' | 'bakery' | 'cafe';
+
+export interface VenuePhotoSlide {
+  url: string;
+  caption: string;
+  tag: string;
+}
+
 export interface VenueAdRecommendation {
   id: string;
   name: string;
-  type: 'Hotel & Banquet' | 'Rooftop Restaurant & Lounge' | 'Heritage Resort & Lawn' | 'Convention & Community Space' | 'Restaurant & Banquet';
+  type:
+    | 'Hotel & Banquet'
+    | 'Rooftop Restaurant & Lounge'
+    | 'Heritage Resort & Lawn'
+    | 'Convention & Community Space'
+    | 'Restaurant & Banquet'
+    | 'Restaurant & Group Dining'
+    | 'Restaurant & Celebration Space'
+    | 'Artisanal Bakery & Cake Studio'
+    | 'Cafe & Lounge';
+  placeCategory: PlaceSearchCategory;
   city: string;
   address?: string;
   osmId?: string;
@@ -94,9 +112,33 @@ export interface VenueAdRecommendation {
   currency: CurrencyCode;
   sponsoredBadge: 'Sponsored • Live OSM Match' | 'Featured Partner • Real Venue' | 'Top Rated Local Pick';
   highlights: string[];
+  photos: VenuePhotoSlide[];
+  inAppMenuPreview: {
+    welcomeDrinks: string[];
+    starters: string[];
+    mainsAndLiveCounters: string[];
+    desserts: string[];
+    includedAmenities: string[];
+  };
   bookingUrl: string;
   mapsUrl: string;
   osmUrl?: string;
+}
+
+export interface InAppBookingRecord {
+  bookingId: string;
+  venueId: string;
+  venueName: string;
+  venueAddress: string;
+  city: string;
+  eventDate: string;
+  timeSlot: 'Morning / Brunch (11 AM - 3 PM)' | 'Sunset High-Tea (4 PM - 7 PM)' | 'Evening Dinner & Party (7 PM - 11:30 PM)';
+  guestCount: number;
+  totalEstimatedCost: number;
+  currency: CurrencyCode;
+  dietaryPreference: string;
+  specialNotes: string;
+  bookedAt: string;
 }
 
 export interface ChatMessage {
